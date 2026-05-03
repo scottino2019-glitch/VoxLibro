@@ -23,8 +23,19 @@ import { GoogleGenAI } from "@google/genai";
 import { extractTextFromPdf, renderPageToImage, getNumPages } from './lib/pdf';
 import { cn } from './lib/utils';
 
-// Initialize Gemini
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// We'll initialize Gemini lazily to avoid crashes if the API key is missing during boot
+let aiInstance: GoogleGenAI | null = null;
+
+const getGeminiAI = () => {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not defined. Please set it in your environment variables.");
+    }
+    aiInstance = new GoogleGenAI(apiKey);
+  }
+  return aiInstance;
+};
 
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
@@ -197,6 +208,7 @@ export default function App() {
     if (!file) return;
     setIsOcrLoading(true);
     try {
+      const ai = getGeminiAI();
       const totalPages = await getNumPages(file);
       const newChunks: string[] = [];
       
@@ -221,9 +233,14 @@ export default function App() {
           setChunks(prev => [...prev, extractedText]);
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('OCR failed:', error);
-      alert('Errore nel riconoscimento del testo AI. Verifica la connessione o riprova più tardi.');
+      const message = error?.message || '';
+      if (message.includes("GEMINI_API_KEY")) {
+        alert("Configurazione mancante: La chiave API di Gemini non è impostata su Vercel. Aggiungi GEMINI_API_KEY alle variabili d'ambiente del tuo progetto.");
+      } else {
+        alert('Errore nel riconoscimento del testo AI. Verifica la connessione o riprova più tardi.');
+      }
     } finally {
       setIsOcrLoading(false);
     }
