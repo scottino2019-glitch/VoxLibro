@@ -217,7 +217,6 @@ export default function App() {
     setIsOcrLoading(true);
     try {
       const ai = getGeminiAI();
-      const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
       const totalPages = await getNumPages(file);
       setOcrProgress({ current: 0, total: totalPages });
       
@@ -231,17 +230,25 @@ export default function App() {
           try {
             const base64Image = await renderPageToImage(file, i);
             
-            const result = await model.generateContent([
-              "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini.",
-              { 
-                inlineData: {
-                  data: base64Image,
-                  mimeType: "image/jpeg",
+            const response = await ai.models.generateContent({
+              model: "gemini-1.5-flash",
+              contents: [
+                {
+                  role: "user",
+                  parts: [
+                    { text: "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini." },
+                    { 
+                      inlineData: {
+                        data: base64Image,
+                        mimeType: "image/jpeg",
+                      },
+                    },
+                  ],
                 },
-              },
-            ]);
+              ],
+            });
             
-            const extractedText = result.response.text()?.trim();
+            const extractedText = response.text?.trim();
             if (extractedText) {
               setChunks(prev => {
                 if (prev.length < i) {
@@ -255,13 +262,13 @@ export default function App() {
             const errorMsg = error?.message || "";
             if (errorMsg.includes("429") || errorMsg.toLowerCase().includes("too many requests") || errorMsg.toLowerCase().includes("limit exceeded") || errorMsg.toLowerCase().includes("quota")) {
               retries++;
-              const waitTime = Math.pow(2, retries) * 10000 + 5000;
-              console.warn(`Quota limit hit on page ${i}. Retry ${retries}/${maxRetries} in ${waitTime}ms...`);
+              const waitTime = Math.pow(2, retries) * 15000 + 5000;
+              console.warn(`Limite quota raggiunto alla pagina ${i}. Tentativo ${retries}/${maxRetries} tra ${waitTime}ms...`);
               await sleep(waitTime);
             } else {
-              console.error(`Error on page ${i}:`, error);
+              console.error(`Errore alla pagina ${i}:`, error);
               retries++;
-              await sleep(3000);
+              await sleep(5000);
             }
           }
         }
@@ -274,7 +281,7 @@ export default function App() {
       console.error('OCR failed:', error);
       const message = error?.message || '';
       if (message.includes("GEMINI_API_KEY")) {
-        alert("Configurazione mancante: La chiave API di Gemini non è impostata su Vercel. Aggiungi GEMINI_API_KEY alle variabili d'ambiente del tuo progetto.");
+        alert("Configurazione mancante: La chiave API di Gemini non è impostata.");
       } else {
         alert('Errore nel riconoscimento del testo AI. Verifica la connessione o riprova più tardi.');
       }
