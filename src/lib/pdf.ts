@@ -84,11 +84,7 @@ export async function renderPageToImage(file: File, pageNum: number): Promise<st
   const pdf = await loadingTask.promise;
   const page = await pdf.getPage(pageNum);
   
-  const originalViewport = page.getViewport({ scale: 1.0 });
-  const maxDimension = 1024;
-  const scale = Math.min(maxDimension / originalViewport.width, maxDimension / originalViewport.height, 2.0);
-  
-  const viewport = page.getViewport({ scale }); 
+  const viewport = page.getViewport({ scale: 2.0 }); 
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
   
