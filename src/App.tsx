@@ -34,7 +34,7 @@ const getGeminiAI = () => {
       throw new Error("GEMINI_API_KEY is not defined. Please set it in your environment variables.");
     }
 
-    aiInstance = new GoogleGenAI(apiKey);
+    aiInstance = new GoogleGenAI({ apiKey });
   }
 
   return aiInstance;
@@ -215,7 +215,6 @@ export default function App() {
     setIsOcrLoading(true);
     try {
       const ai = getGeminiAI();
-      const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
       const totalPages = await getNumPages(file);
       setOcrProgress({ current: 0, total: totalPages });
       
@@ -223,45 +222,58 @@ export default function App() {
         setOcrProgress({ current: i, total: totalPages });
         let success = false;
         let retries = 0;
-        const maxRetries = 3;
+        const maxRetries = 5;
 
         while (!success && retries < maxRetries) {
           try {
             const base64Image = await renderPageToImage(file, i);
             
-            const result = await model.generateContent([
-              "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini.",
-              {
-                inlineData: {
-                  data: base64Image,
-                  mimeType: "image/jpeg",
-                },
+            const response = await ai.models.generateContent({
+              model: "gemini-3-flash-preview",
+              contents: {
+                parts: [
+                  { text: "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini." },
+                  { 
+                    inlineData: {
+                      data: base64Image,
+                      mimeType: "image/jpeg",
+                    },
+                  },
+                ],
               },
-            ]);
+            });
             
-            const extractedText = result.response.text()?.trim();
+            const extractedText = response.text?.trim();
             if (extractedText) {
-              setChunks(prev => [...prev, extractedText]);
+              setChunks(prev => {
+                // Ensure we don't duplicate the page if a retry succeeded late
+                if (prev.length < i) {
+                  return [...prev, extractedText];
+                }
+                return prev;
+              });
             }
             success = true;
           } catch (error: any) {
             const errorMsg = error?.message || "";
             if (errorMsg.includes("429") || errorMsg.toLowerCase().includes("too many requests") || errorMsg.toLowerCase().includes("limit exceeded") || errorMsg.toLowerCase().includes("quota")) {
               retries++;
-              // Significant backoff for quota limits
-              const waitTime = Math.pow(2, retries) * 5000 + 2000;
+              // Significant exponential backoff: 15s, 45s, 85s... 
+              const waitTime = Math.pow(2, retries) * 10000 + 5000;
               console.warn(`Quota limit hit on page ${i}. Retry ${retries}/${maxRetries} in ${waitTime}ms...`);
               await sleep(waitTime);
             } else {
               console.error(`Error on page ${i}:`, error);
-              success = true; 
+              // For other errors, still try a small wait and retry
+              retries++;
+              await sleep(3000);
             }
           }
         }
 
-        // Mandatory pause between pages to stay under RPM (Requests Per Minute)
+        // Mandatory pause between pages to stay under RPM
         if (i < totalPages) {
-          await sleep(5000); 
+          await sleep(8000); 
         }
       }
     } catch (error: any) {
