@@ -42,6 +42,8 @@ const getGeminiAI = () => {
   return aiInstance;
 };
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [chunks, setChunks] = useState<string[]>([]);
@@ -49,6 +51,7 @@ export default function App() {
   const [isReading, setIsReading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isOcrLoading, setIsOcrLoading] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState({ current: 0, total: 0 });
   const [speed, setSpeed] = useState(1);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
@@ -215,26 +218,54 @@ export default function App() {
     try {
       const ai = getGeminiAI();
       const totalPages = await getNumPages(file);
+      setOcrProgress({ current: 0, total: totalPages });
       
       for (let i = 1; i <= totalPages; i++) {
-        const base64Image = await renderPageToImage(file, i);
-        
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: [
-            "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini.",
-            {
-              inlineData: {
-                data: base64Image,
-                mimeType: "image/jpeg",
-              },
-            },
-          ],
-        });
-        
-        const extractedText = response.text?.trim();
-        if (extractedText) {
-          setChunks(prev => [...prev, extractedText]);
+        setOcrProgress({ current: i, total: totalPages });
+        let success = false;
+        let retries = 0;
+        const maxRetries = 3;
+
+        while (!success && retries < maxRetries) {
+          try {
+            const base64Image = await renderPageToImage(file, i);
+            
+            const response = await ai.models.generateContent({
+              model: "gemini-1.5-flash",
+              contents: [
+                "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini.",
+                {
+                  inlineData: {
+                    data: base64Image,
+                    mimeType: "image/jpeg",
+                  },
+                },
+              ],
+            });
+            
+            const extractedText = response.text?.trim();
+            if (extractedText) {
+              setChunks(prev => [...prev, extractedText]);
+            }
+            success = true;
+          } catch (error: any) {
+            const errorMsg = error?.message || "";
+            if (errorMsg.includes("429") || errorMsg.toLowerCase().includes("too many requests") || errorMsg.toLowerCase().includes("limit exceeded") || errorMsg.toLowerCase().includes("quota")) {
+              retries++;
+              // Much more aggressive backoff for token limits
+              const waitTime = Math.pow(3, retries) * 2000 + 1000;
+              console.warn(`Quota limit hit on page ${i}. Retry ${retries}/${maxRetries} in ${waitTime}ms...`);
+              await sleep(waitTime);
+            } else {
+              console.error(`Error on page ${i}:`, error);
+              success = true; 
+            }
+          }
+        }
+
+        // Increased mandatory pause between pages to stay under RPM
+        if (i < totalPages) {
+          await sleep(1500);
         }
       }
     } catch (error: any) {
@@ -353,7 +384,7 @@ export default function App() {
                             className="w-full py-4 bg-stone-900 text-white text-[10px] uppercase tracking-widest font-bold flex items-center justify-center gap-2"
                           >
                             {isOcrLoading ? <Loader2 className="w-3 h-3 animate-spin"/> : <ScanEye className="w-4 h-4"/>}
-                            {isOcrLoading ? "Scansione..." : "Attiva OCR AI"}
+                            {isOcrLoading ? `Pagina ${ocrProgress.current}/${ocrProgress.total}` : "Attiva OCR AI"}
                           </button>
                         </div>
 
@@ -482,7 +513,7 @@ export default function App() {
                     )}
                   >
                     {isOcrLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ScanEye className="w-4 h-4" />}
-                    {isOcrLoading ? "Scansione..." : "Attiva OCR AI"}
+                    {isOcrLoading ? `Pagina ${ocrProgress.current}/${ocrProgress.total}` : "Attiva OCR AI"}
                   </button>
                 </div>
 
