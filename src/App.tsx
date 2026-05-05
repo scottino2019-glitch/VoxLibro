@@ -233,12 +233,17 @@ export default function App() {
             const response = await ai.models.generateContent({
               model: "gemini-1.5-flash",
               contents: [
-                "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini.",
                 {
-                  inlineData: {
-                    data: base64Image,
-                    mimeType: "image/jpeg",
-                  },
+                  role: "user",
+                  parts: [
+                    { text: "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini." },
+                    { 
+                      inlineData: {
+                        data: base64Image,
+                        mimeType: "image/jpeg",
+                      },
+                    },
+                  ],
                 },
               ],
             });
@@ -265,7 +270,7 @@ export default function App() {
 
         // Increased mandatory pause between pages to stay under RPM
         if (i < totalPages) {
-          await sleep(1500);
+          await sleep(3000);
         }
       }
     } catch (error: any) {
