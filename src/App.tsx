@@ -34,9 +34,7 @@ const getGeminiAI = () => {
       throw new Error("GEMINI_API_KEY is not defined. Please set it in your environment variables.");
     }
 
-    aiInstance = new GoogleGenAI({
-      apiKey,
-    });
+    aiInstance = new GoogleGenAI(apiKey);
   }
 
   return aiInstance;
@@ -217,6 +215,7 @@ export default function App() {
     setIsOcrLoading(true);
     try {
       const ai = getGeminiAI();
+      const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
       const totalPages = await getNumPages(file);
       setOcrProgress({ current: 0, total: totalPages });
       
@@ -230,25 +229,17 @@ export default function App() {
           try {
             const base64Image = await renderPageToImage(file, i);
             
-            const response = await ai.models.generateContent({
-              model: "gemini-1.5-flash",
-              contents: [
-                {
-                  role: "user",
-                  parts: [
-                    { text: "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini." },
-                    { 
-                      inlineData: {
-                        data: base64Image,
-                        mimeType: "image/jpeg",
-                      },
-                    },
-                  ],
+            const result = await model.generateContent([
+              "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini.",
+              {
+                inlineData: {
+                  data: base64Image,
+                  mimeType: "image/jpeg",
                 },
-              ],
-            });
+              },
+            ]);
             
-            const extractedText = response.text?.trim();
+            const extractedText = result.response.text()?.trim();
             if (extractedText) {
               setChunks(prev => [...prev, extractedText]);
             }
@@ -257,8 +248,8 @@ export default function App() {
             const errorMsg = error?.message || "";
             if (errorMsg.includes("429") || errorMsg.toLowerCase().includes("too many requests") || errorMsg.toLowerCase().includes("limit exceeded") || errorMsg.toLowerCase().includes("quota")) {
               retries++;
-              // Much more aggressive backoff for token limits
-              const waitTime = Math.pow(3, retries) * 2000 + 1000;
+              // Significant backoff for quota limits
+              const waitTime = Math.pow(2, retries) * 5000 + 2000;
               console.warn(`Quota limit hit on page ${i}. Retry ${retries}/${maxRetries} in ${waitTime}ms...`);
               await sleep(waitTime);
             } else {
@@ -268,9 +259,9 @@ export default function App() {
           }
         }
 
-        // Increased mandatory pause between pages to stay under RPM
+        // Mandatory pause between pages to stay under RPM (Requests Per Minute)
         if (i < totalPages) {
-          await sleep(3000);
+          await sleep(5000); 
         }
       }
     } catch (error: any) {
