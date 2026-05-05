@@ -214,23 +214,25 @@ export default function App() {
     setIsOcrLoading(true);
     try {
       const ai = getGeminiAI();
-      const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
       const totalPages = await getNumPages(file);
       
       for (let i = 1; i <= totalPages; i++) {
         const base64Image = await renderPageToImage(file, i);
         
-        const result = await model.generateContent([
-          "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini.",
-          {
-            inlineData: {
-              data: base64Image,
-              mimeType: "image/jpeg",
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [
+            "Trascrivi accuratamente tutto il testo presente in questa pagina di libro per un audiolettore. Restituisci esclusivamente il testo estratto, mantieni i paragrafi originali, non aggiungere commenti o descrizioni delle immagini.",
+            {
+              inlineData: {
+                data: base64Image,
+                mimeType: "image/jpeg",
+              },
             },
-          },
-        ]);
+          ],
+        });
         
-        const extractedText = result.response.text()?.trim();
+        const extractedText = response.text?.trim();
         if (extractedText) {
           setChunks(prev => [...prev, extractedText]);
         }
